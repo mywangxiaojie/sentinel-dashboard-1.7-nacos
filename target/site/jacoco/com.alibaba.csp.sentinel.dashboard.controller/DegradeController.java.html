@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DegradeController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">sentinel-dashboard</a> &gt; <a href="index.source.html" class="el_package">com.alibaba.csp.sentinel.dashboard.controller</a> &gt; <span class="el_source">DegradeController.java</span></div><h1>DegradeController.java</h1><pre class="source lang-java linenums">/*
+ * Copyright 1999-2018 Alibaba Group Holding Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.alibaba.csp.sentinel.dashboard.controller;
+
+import java.util.Date;
+import java.util.List;
+
+import com.alibaba.csp.sentinel.dashboard.auth.AuthAction;
+import com.alibaba.csp.sentinel.dashboard.client.SentinelApiClient;
+import com.alibaba.csp.sentinel.dashboard.discovery.MachineInfo;
+import com.alibaba.csp.sentinel.dashboard.auth.AuthService.PrivilegeType;
+import com.alibaba.csp.sentinel.slots.block.RuleConstant;
+import com.alibaba.csp.sentinel.util.StringUtil;
+
+import com.alibaba.csp.sentinel.dashboard.datasource.entity.rule.DegradeRuleEntity;
+import com.alibaba.csp.sentinel.dashboard.domain.Result;
+import com.alibaba.csp.sentinel.dashboard.repository.rule.InMemDegradeRuleStore;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseBody;
+
+/**
+ * @author leyou
+ */
+@Controller
+@RequestMapping(value = &quot;/degrade&quot;, produces = MediaType.APPLICATION_JSON_VALUE)
+<span class="nc" id="L45">public class DegradeController {</span>
+
+<span class="nc" id="L47">    private final Logger logger = LoggerFactory.getLogger(DegradeController.class);</span>
+
+    @Autowired
+    private InMemDegradeRuleStore repository;
+    @Autowired
+    private SentinelApiClient sentinelApiClient;
+
+    @ResponseBody
+    @RequestMapping(&quot;/rules.json&quot;)
+    @AuthAction(PrivilegeType.READ_RULE)
+    public Result&lt;List&lt;DegradeRuleEntity&gt;&gt; queryMachineRules(String app, String ip, Integer port) {
+
+<span class="nc bnc" id="L59" title="All 2 branches missed.">        if (StringUtil.isEmpty(app)) {</span>
+<span class="nc" id="L60">            return Result.ofFail(-1, &quot;app can't be null or empty&quot;);</span>
+        }
+<span class="nc bnc" id="L62" title="All 2 branches missed.">        if (StringUtil.isEmpty(ip)) {</span>
+<span class="nc" id="L63">            return Result.ofFail(-1, &quot;ip can't be null or empty&quot;);</span>
+        }
+<span class="nc bnc" id="L65" title="All 2 branches missed.">        if (port == null) {</span>
+<span class="nc" id="L66">            return Result.ofFail(-1, &quot;port can't be null&quot;);</span>
+        }
+        try {
+<span class="nc" id="L69">            List&lt;DegradeRuleEntity&gt; rules = sentinelApiClient.fetchDegradeRuleOfMachine(app, ip, port);</span>
+<span class="nc" id="L70">            rules = repository.saveAll(rules);</span>
+<span class="nc" id="L71">            return Result.ofSuccess(rules);</span>
+<span class="nc" id="L72">        } catch (Throwable throwable) {</span>
+<span class="nc" id="L73">            logger.error(&quot;queryApps error:&quot;, throwable);</span>
+<span class="nc" id="L74">            return Result.ofThrowable(-1, throwable);</span>
+        }
+    }
+
+    @ResponseBody
+    @RequestMapping(&quot;/new.json&quot;)
+    @AuthAction(PrivilegeType.WRITE_RULE)
+    public Result&lt;DegradeRuleEntity&gt; add(String app, String ip, Integer port, String limitApp, String resource,
+                                         Double count, Integer timeWindow, Integer grade) {
+<span class="nc bnc" id="L83" title="All 2 branches missed.">        if (StringUtil.isBlank(app)) {</span>
+<span class="nc" id="L84">            return Result.ofFail(-1, &quot;app can't be null or empty&quot;);</span>
+        }
+<span class="nc bnc" id="L86" title="All 2 branches missed.">        if (StringUtil.isBlank(ip)) {</span>
+<span class="nc" id="L87">            return Result.ofFail(-1, &quot;ip can't be null or empty&quot;);</span>
+        }
+<span class="nc bnc" id="L89" title="All 2 branches missed.">        if (port == null) {</span>
+<span class="nc" id="L90">            return Result.ofFail(-1, &quot;port can't be null&quot;);</span>
+        }
+<span class="nc bnc" id="L92" title="All 2 branches missed.">        if (StringUtil.isBlank(limitApp)) {</span>
+<span class="nc" id="L93">            return Result.ofFail(-1, &quot;limitApp can't be null or empty&quot;);</span>
+        }
+<span class="nc bnc" id="L95" title="All 2 branches missed.">        if (StringUtil.isBlank(resource)) {</span>
+<span class="nc" id="L96">            return Result.ofFail(-1, &quot;resource can't be null or empty&quot;);</span>
+        }
+<span class="nc bnc" id="L98" title="All 2 branches missed.">        if (count == null) {</span>
+<span class="nc" id="L99">            return Result.ofFail(-1, &quot;count can't be null&quot;);</span>
+        }
+<span class="nc bnc" id="L101" title="All 2 branches missed.">        if (timeWindow == null) {</span>
+<span class="nc" id="L102">            return Result.ofFail(-1, &quot;timeWindow can't be null&quot;);</span>
+        }
+<span class="nc bnc" id="L104" title="All 2 branches missed.">        if (grade == null) {</span>
+<span class="nc" id="L105">            return Result.ofFail(-1, &quot;grade can't be null&quot;);</span>
+        }
+<span class="nc bnc" id="L107" title="All 4 branches missed.">        if (grade &lt; RuleConstant.DEGRADE_GRADE_RT || grade &gt; RuleConstant.DEGRADE_GRADE_EXCEPTION_COUNT) {</span>
+<span class="nc" id="L108">            return Result.ofFail(-1, &quot;Invalid grade: &quot; + grade);</span>
+        }
+<span class="nc" id="L110">        DegradeRuleEntity entity = new DegradeRuleEntity();</span>
+<span class="nc" id="L111">        entity.setApp(app.trim());</span>
+<span class="nc" id="L112">        entity.setIp(ip.trim());</span>
+<span class="nc" id="L113">        entity.setPort(port);</span>
+<span class="nc" id="L114">        entity.setLimitApp(limitApp.trim());</span>
+<span class="nc" id="L115">        entity.setResource(resource.trim());</span>
+<span class="nc" id="L116">        entity.setCount(count);</span>
+<span class="nc" id="L117">        entity.setTimeWindow(timeWindow);</span>
+<span class="nc" id="L118">        entity.setGrade(grade);</span>
+<span class="nc" id="L119">        Date date = new Date();</span>
+<span class="nc" id="L120">        entity.setGmtCreate(date);</span>
+<span class="nc" id="L121">        entity.setGmtModified(date);</span>
+        try {
+<span class="nc" id="L123">            entity = repository.save(entity);</span>
+<span class="nc" id="L124">        } catch (Throwable throwable) {</span>
+<span class="nc" id="L125">            logger.error(&quot;add error:&quot;, throwable);</span>
+<span class="nc" id="L126">            return Result.ofThrowable(-1, throwable);</span>
+<span class="nc" id="L127">        }</span>
+<span class="nc bnc" id="L128" title="All 2 branches missed.">        if (!publishRules(app, ip, port)) {</span>
+<span class="nc" id="L129">            logger.info(&quot;publish degrade rules fail after rule add&quot;);</span>
+        }
+<span class="nc" id="L131">        return Result.ofSuccess(entity);</span>
+    }
+
+    @ResponseBody
+    @RequestMapping(&quot;/save.json&quot;)
+    @AuthAction(PrivilegeType.WRITE_RULE)
+    public Result&lt;DegradeRuleEntity&gt; updateIfNotNull(Long id, String app, String limitApp, String resource,
+                                                     Double count, Integer timeWindow, Integer grade) {
+<span class="nc bnc" id="L139" title="All 2 branches missed.">        if (id == null) {</span>
+<span class="nc" id="L140">            return Result.ofFail(-1, &quot;id can't be null&quot;);</span>
+        }
+<span class="nc bnc" id="L142" title="All 2 branches missed.">        if (grade != null) {</span>
+<span class="nc bnc" id="L143" title="All 4 branches missed.">            if (grade &lt; RuleConstant.DEGRADE_GRADE_RT || grade &gt; RuleConstant.DEGRADE_GRADE_EXCEPTION_COUNT) {</span>
+<span class="nc" id="L144">                return Result.ofFail(-1, &quot;Invalid grade: &quot; + grade);</span>
+            }
+        }
+<span class="nc" id="L147">        DegradeRuleEntity entity = repository.findById(id);</span>
+<span class="nc bnc" id="L148" title="All 2 branches missed.">        if (entity == null) {</span>
+<span class="nc" id="L149">            return Result.ofFail(-1, &quot;id &quot; + id + &quot; dose not exist&quot;);</span>
+        }
+
+<span class="nc bnc" id="L152" title="All 2 branches missed.">        if (StringUtil.isNotBlank(app)) {</span>
+<span class="nc" id="L153">            entity.setApp(app.trim());</span>
+        }
+
+<span class="nc bnc" id="L156" title="All 2 branches missed.">        if (StringUtil.isNotBlank(limitApp)) {</span>
+<span class="nc" id="L157">            entity.setLimitApp(limitApp.trim());</span>
+        }
+<span class="nc bnc" id="L159" title="All 2 branches missed.">        if (StringUtil.isNotBlank(resource)) {</span>
+<span class="nc" id="L160">            entity.setResource(resource.trim());</span>
+        }
+<span class="nc bnc" id="L162" title="All 2 branches missed.">        if (count != null) {</span>
+<span class="nc" id="L163">            entity.setCount(count);</span>
+        }
+<span class="nc bnc" id="L165" title="All 2 branches missed.">        if (timeWindow != null) {</span>
+<span class="nc" id="L166">            entity.setTimeWindow(timeWindow);</span>
+        }
+<span class="nc bnc" id="L168" title="All 2 branches missed.">        if (grade != null) {</span>
+<span class="nc" id="L169">            entity.setGrade(grade);</span>
+        }
+<span class="nc" id="L171">        Date date = new Date();</span>
+<span class="nc" id="L172">        entity.setGmtModified(date);</span>
+        try {
+<span class="nc" id="L174">            entity = repository.save(entity);</span>
+<span class="nc" id="L175">        } catch (Throwable throwable) {</span>
+<span class="nc" id="L176">            logger.error(&quot;save error:&quot;, throwable);</span>
+<span class="nc" id="L177">            return Result.ofThrowable(-1, throwable);</span>
+<span class="nc" id="L178">        }</span>
+<span class="nc bnc" id="L179" title="All 2 branches missed.">        if (!publishRules(entity.getApp(), entity.getIp(), entity.getPort())) {</span>
+<span class="nc" id="L180">            logger.info(&quot;publish degrade rules fail after rule update&quot;);</span>
+        }
+<span class="nc" id="L182">        return Result.ofSuccess(entity);</span>
+    }
+
+    @ResponseBody
+    @RequestMapping(&quot;/delete.json&quot;)
+    @AuthAction(PrivilegeType.DELETE_RULE)
+    public Result&lt;Long&gt; delete(Long id) {
+<span class="nc bnc" id="L189" title="All 2 branches missed.">        if (id == null) {</span>
+<span class="nc" id="L190">            return Result.ofFail(-1, &quot;id can't be null&quot;);</span>
+        }
+
+<span class="nc" id="L193">        DegradeRuleEntity oldEntity = repository.findById(id);</span>
+<span class="nc bnc" id="L194" title="All 2 branches missed.">        if (oldEntity == null) {</span>
+<span class="nc" id="L195">            return Result.ofSuccess(null);</span>
+        }
+
+        try {
+<span class="nc" id="L199">            repository.delete(id);</span>
+<span class="nc" id="L200">        } catch (Throwable throwable) {</span>
+<span class="nc" id="L201">            logger.error(&quot;delete error:&quot;, throwable);</span>
+<span class="nc" id="L202">            return Result.ofThrowable(-1, throwable);</span>
+<span class="nc" id="L203">        }</span>
+<span class="nc bnc" id="L204" title="All 2 branches missed.">        if (!publishRules(oldEntity.getApp(), oldEntity.getIp(), oldEntity.getPort())) {</span>
+<span class="nc" id="L205">            logger.info(&quot;publish degrade rules fail after rule delete&quot;);</span>
+        }
+<span class="nc" id="L207">        return Result.ofSuccess(id);</span>
+    }
+
+    private boolean publishRules(String app, String ip, Integer port) {
+<span class="nc" id="L211">        List&lt;DegradeRuleEntity&gt; rules = repository.findAllByMachine(MachineInfo.of(app, ip, port));</span>
+<span class="nc" id="L212">        return sentinelApiClient.setDegradeRuleOfMachine(app, ip, port, rules);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.3.201901230119</span></div></body></html>

@@ -1,0 +1,261 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GatewayApiController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">sentinel-dashboard</a> &gt; <a href="index.source.html" class="el_package">com.alibaba.csp.sentinel.dashboard.controller.gateway</a> &gt; <span class="el_source">GatewayApiController.java</span></div><h1>GatewayApiController.java</h1><pre class="source lang-java linenums">/*
+ * Copyright 1999-2018 Alibaba Group Holding Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.alibaba.csp.sentinel.dashboard.controller.gateway;
+
+import com.alibaba.csp.sentinel.dashboard.auth.AuthAction;
+import com.alibaba.csp.sentinel.dashboard.auth.AuthService;
+import com.alibaba.csp.sentinel.dashboard.client.SentinelApiClient;
+import com.alibaba.csp.sentinel.dashboard.datasource.entity.gateway.ApiDefinitionEntity;
+import com.alibaba.csp.sentinel.dashboard.datasource.entity.gateway.ApiPredicateItemEntity;
+import com.alibaba.csp.sentinel.dashboard.discovery.MachineInfo;
+import com.alibaba.csp.sentinel.dashboard.domain.Result;
+import com.alibaba.csp.sentinel.dashboard.domain.vo.gateway.api.AddApiReqVo;
+import com.alibaba.csp.sentinel.dashboard.domain.vo.gateway.api.ApiPredicateItemVo;
+import com.alibaba.csp.sentinel.dashboard.domain.vo.gateway.api.UpdateApiReqVo;
+import com.alibaba.csp.sentinel.dashboard.repository.gateway.InMemApiDefinitionStore;
+import com.alibaba.csp.sentinel.util.StringUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.util.CollectionUtils;
+import org.springframework.web.bind.annotation.*;
+
+import javax.servlet.http.HttpServletRequest;
+import java.util.*;
+
+import static com.alibaba.csp.sentinel.adapter.gateway.common.SentinelGatewayConstants.*;
+
+/**
+ * Gateway api Controller for manage gateway api definitions.
+ *
+ * @author cdfive
+ * @since 1.7.0
+ */
+@RestController
+@RequestMapping(value = &quot;/gateway/api&quot;)
+<span class="fc" id="L49">public class GatewayApiController {</span>
+
+<span class="fc" id="L51">    private final Logger logger = LoggerFactory.getLogger(GatewayApiController.class);</span>
+
+    @Autowired
+    private InMemApiDefinitionStore repository;
+
+    @Autowired
+    private SentinelApiClient sentinelApiClient;
+
+    @GetMapping(&quot;/list.json&quot;)
+    @AuthAction(AuthService.PrivilegeType.READ_RULE)
+    public Result&lt;List&lt;ApiDefinitionEntity&gt;&gt; queryApis(String app, String ip, Integer port) {
+
+<span class="pc bpc" id="L63" title="1 of 2 branches missed.">        if (StringUtil.isEmpty(app)) {</span>
+<span class="nc" id="L64">            return Result.ofFail(-1, &quot;app can't be null or empty&quot;);</span>
+        }
+<span class="pc bpc" id="L66" title="1 of 2 branches missed.">        if (StringUtil.isEmpty(ip)) {</span>
+<span class="nc" id="L67">            return Result.ofFail(-1, &quot;ip can't be null or empty&quot;);</span>
+        }
+<span class="pc bpc" id="L69" title="1 of 2 branches missed.">        if (port == null) {</span>
+<span class="nc" id="L70">            return Result.ofFail(-1, &quot;port can't be null&quot;);</span>
+        }
+
+        try {
+<span class="fc" id="L74">            List&lt;ApiDefinitionEntity&gt; apis = sentinelApiClient.fetchApis(app, ip, port).get();</span>
+<span class="fc" id="L75">            repository.saveAll(apis);</span>
+<span class="fc" id="L76">            return Result.ofSuccess(apis);</span>
+<span class="nc" id="L77">        } catch (Throwable throwable) {</span>
+<span class="nc" id="L78">            logger.error(&quot;queryApis error:&quot;, throwable);</span>
+<span class="nc" id="L79">            return Result.ofThrowable(-1, throwable);</span>
+        }
+    }
+
+    @PostMapping(&quot;/new.json&quot;)
+    @AuthAction(AuthService.PrivilegeType.WRITE_RULE)
+    public Result&lt;ApiDefinitionEntity&gt; addApi(HttpServletRequest request, @RequestBody AddApiReqVo reqVo) {
+
+<span class="fc" id="L87">        String app = reqVo.getApp();</span>
+<span class="pc bpc" id="L88" title="1 of 2 branches missed.">        if (StringUtil.isBlank(app)) {</span>
+<span class="nc" id="L89">            return Result.ofFail(-1, &quot;app can't be null or empty&quot;);</span>
+        }
+
+<span class="fc" id="L92">        ApiDefinitionEntity entity = new ApiDefinitionEntity();</span>
+<span class="fc" id="L93">        entity.setApp(app.trim());</span>
+
+<span class="fc" id="L95">        String ip = reqVo.getIp();</span>
+<span class="pc bpc" id="L96" title="1 of 2 branches missed.">        if (StringUtil.isBlank(ip)) {</span>
+<span class="nc" id="L97">            return Result.ofFail(-1, &quot;ip can't be null or empty&quot;);</span>
+        }
+<span class="fc" id="L99">        entity.setIp(ip.trim());</span>
+
+<span class="fc" id="L101">        Integer port = reqVo.getPort();</span>
+<span class="pc bpc" id="L102" title="1 of 2 branches missed.">        if (port == null) {</span>
+<span class="nc" id="L103">            return Result.ofFail(-1, &quot;port can't be null&quot;);</span>
+        }
+<span class="fc" id="L105">        entity.setPort(port);</span>
+
+        // API名称
+<span class="fc" id="L108">        String apiName = reqVo.getApiName();</span>
+<span class="pc bpc" id="L109" title="1 of 2 branches missed.">        if (StringUtil.isBlank(apiName)) {</span>
+<span class="nc" id="L110">            return Result.ofFail(-1, &quot;apiName can't be null or empty&quot;);</span>
+        }
+<span class="fc" id="L112">        entity.setApiName(apiName.trim());</span>
+
+        // 匹配规则列表
+<span class="fc" id="L115">        List&lt;ApiPredicateItemVo&gt; predicateItems = reqVo.getPredicateItems();</span>
+<span class="pc bpc" id="L116" title="1 of 2 branches missed.">        if (CollectionUtils.isEmpty(predicateItems)) {</span>
+<span class="nc" id="L117">            return Result.ofFail(-1, &quot;predicateItems can't empty&quot;);</span>
+        }
+
+<span class="fc" id="L120">        List&lt;ApiPredicateItemEntity&gt; predicateItemEntities = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L121" title="All 2 branches covered.">        for (ApiPredicateItemVo predicateItem : predicateItems) {</span>
+<span class="fc" id="L122">            ApiPredicateItemEntity predicateItemEntity = new ApiPredicateItemEntity();</span>
+
+            // 匹配模式
+<span class="fc" id="L125">            Integer matchStrategy = predicateItem.getMatchStrategy();</span>
+<span class="pc bpc" id="L126" title="1 of 2 branches missed.">            if (!Arrays.asList(URL_MATCH_STRATEGY_EXACT, URL_MATCH_STRATEGY_PREFIX, URL_MATCH_STRATEGY_REGEX).contains(matchStrategy)) {</span>
+<span class="nc" id="L127">                return Result.ofFail(-1, &quot;invalid matchStrategy: &quot; + matchStrategy);</span>
+            }
+<span class="fc" id="L129">            predicateItemEntity.setMatchStrategy(matchStrategy);</span>
+
+            // 匹配串
+<span class="fc" id="L132">            String pattern = predicateItem.getPattern();</span>
+<span class="pc bpc" id="L133" title="1 of 2 branches missed.">            if (StringUtil.isBlank(pattern)) {</span>
+<span class="nc" id="L134">                return Result.ofFail(-1, &quot;pattern can't be null or empty&quot;);</span>
+            }
+<span class="fc" id="L136">            predicateItemEntity.setPattern(pattern);</span>
+
+<span class="fc" id="L138">            predicateItemEntities.add(predicateItemEntity);</span>
+<span class="fc" id="L139">        }</span>
+<span class="fc" id="L140">        entity.setPredicateItems(new LinkedHashSet&lt;&gt;(predicateItemEntities));</span>
+
+        // 检查API名称不能重复
+<span class="fc" id="L143">        List&lt;ApiDefinitionEntity&gt; allApis = repository.findAllByMachine(MachineInfo.of(app.trim(), ip.trim(), port));</span>
+<span class="pc bpc" id="L144" title="1 of 2 branches missed.">        if (allApis.stream().map(o -&gt; o.getApiName()).anyMatch(o -&gt; o.equals(apiName.trim()))) {</span>
+<span class="nc" id="L145">            return Result.ofFail(-1, &quot;apiName exists: &quot; + apiName);</span>
+        }
+
+<span class="fc" id="L148">        Date date = new Date();</span>
+<span class="fc" id="L149">        entity.setGmtCreate(date);</span>
+<span class="fc" id="L150">        entity.setGmtModified(date);</span>
+
+        try {
+<span class="fc" id="L153">            entity = repository.save(entity);</span>
+<span class="nc" id="L154">        } catch (Throwable throwable) {</span>
+<span class="nc" id="L155">            logger.error(&quot;add gateway api error:&quot;, throwable);</span>
+<span class="nc" id="L156">            return Result.ofThrowable(-1, throwable);</span>
+<span class="fc" id="L157">        }</span>
+
+<span class="pc bpc" id="L159" title="1 of 2 branches missed.">        if (!publishApis(app, ip, port)) {</span>
+<span class="nc" id="L160">            logger.warn(&quot;publish gateway apis fail after add&quot;);</span>
+        }
+
+<span class="fc" id="L163">        return Result.ofSuccess(entity);</span>
+    }
+
+    @PostMapping(&quot;/save.json&quot;)
+    @AuthAction(AuthService.PrivilegeType.WRITE_RULE)
+    public Result&lt;ApiDefinitionEntity&gt; updateApi(@RequestBody UpdateApiReqVo reqVo) {
+<span class="fc" id="L169">        String app = reqVo.getApp();</span>
+<span class="pc bpc" id="L170" title="1 of 2 branches missed.">        if (StringUtil.isBlank(app)) {</span>
+<span class="nc" id="L171">            return Result.ofFail(-1, &quot;app can't be null or empty&quot;);</span>
+        }
+
+<span class="fc" id="L174">        Long id = reqVo.getId();</span>
+<span class="pc bpc" id="L175" title="1 of 2 branches missed.">        if (id == null) {</span>
+<span class="nc" id="L176">            return Result.ofFail(-1, &quot;id can't be null&quot;);</span>
+        }
+
+<span class="fc" id="L179">        ApiDefinitionEntity entity = repository.findById(id);</span>
+<span class="pc bpc" id="L180" title="1 of 2 branches missed.">        if (entity == null) {</span>
+<span class="nc" id="L181">            return Result.ofFail(-1, &quot;api does not exist, id=&quot; + id);</span>
+        }
+
+        // 匹配规则列表
+<span class="fc" id="L185">        List&lt;ApiPredicateItemVo&gt; predicateItems = reqVo.getPredicateItems();</span>
+<span class="pc bpc" id="L186" title="1 of 2 branches missed.">        if (CollectionUtils.isEmpty(predicateItems)) {</span>
+<span class="nc" id="L187">            return Result.ofFail(-1, &quot;predicateItems can't empty&quot;);</span>
+        }
+
+<span class="fc" id="L190">        List&lt;ApiPredicateItemEntity&gt; predicateItemEntities = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L191" title="All 2 branches covered.">        for (ApiPredicateItemVo predicateItem : predicateItems) {</span>
+<span class="fc" id="L192">            ApiPredicateItemEntity predicateItemEntity = new ApiPredicateItemEntity();</span>
+
+            // 匹配模式
+<span class="fc" id="L195">            int matchStrategy = predicateItem.getMatchStrategy();</span>
+<span class="pc bpc" id="L196" title="1 of 2 branches missed.">            if (!Arrays.asList(URL_MATCH_STRATEGY_EXACT, URL_MATCH_STRATEGY_PREFIX, URL_MATCH_STRATEGY_REGEX).contains(matchStrategy)) {</span>
+<span class="nc" id="L197">                return Result.ofFail(-1, &quot;Invalid matchStrategy: &quot; + matchStrategy);</span>
+            }
+<span class="fc" id="L199">            predicateItemEntity.setMatchStrategy(matchStrategy);</span>
+
+            // 匹配串
+<span class="fc" id="L202">            String pattern = predicateItem.getPattern();</span>
+<span class="pc bpc" id="L203" title="1 of 2 branches missed.">            if (StringUtil.isBlank(pattern)) {</span>
+<span class="nc" id="L204">                return Result.ofFail(-1, &quot;pattern can't be null or empty&quot;);</span>
+            }
+<span class="fc" id="L206">            predicateItemEntity.setPattern(pattern);</span>
+
+<span class="fc" id="L208">            predicateItemEntities.add(predicateItemEntity);</span>
+<span class="fc" id="L209">        }</span>
+<span class="fc" id="L210">        entity.setPredicateItems(new LinkedHashSet&lt;&gt;(predicateItemEntities));</span>
+
+<span class="fc" id="L212">        Date date = new Date();</span>
+<span class="fc" id="L213">        entity.setGmtModified(date);</span>
+
+        try {
+<span class="fc" id="L216">            entity = repository.save(entity);</span>
+<span class="nc" id="L217">        } catch (Throwable throwable) {</span>
+<span class="nc" id="L218">            logger.error(&quot;update gateway api error:&quot;, throwable);</span>
+<span class="nc" id="L219">            return Result.ofThrowable(-1, throwable);</span>
+<span class="fc" id="L220">        }</span>
+
+<span class="pc bpc" id="L222" title="1 of 2 branches missed.">        if (!publishApis(app, entity.getIp(), entity.getPort())) {</span>
+<span class="nc" id="L223">            logger.warn(&quot;publish gateway apis fail after update&quot;);</span>
+        }
+
+<span class="fc" id="L226">        return Result.ofSuccess(entity);</span>
+    }
+
+    @PostMapping(&quot;/delete.json&quot;)
+    @AuthAction(AuthService.PrivilegeType.DELETE_RULE)
+
+    public Result&lt;Long&gt; deleteApi(Long id) {
+<span class="pc bpc" id="L233" title="1 of 2 branches missed.">        if (id == null) {</span>
+<span class="nc" id="L234">            return Result.ofFail(-1, &quot;id can't be null&quot;);</span>
+        }
+
+<span class="fc" id="L237">        ApiDefinitionEntity oldEntity = repository.findById(id);</span>
+<span class="pc bpc" id="L238" title="1 of 2 branches missed.">        if (oldEntity == null) {</span>
+<span class="nc" id="L239">            return Result.ofSuccess(null);</span>
+        }
+
+        try {
+<span class="fc" id="L243">            repository.delete(id);</span>
+<span class="nc" id="L244">        } catch (Throwable throwable) {</span>
+<span class="nc" id="L245">            logger.error(&quot;delete gateway api error:&quot;, throwable);</span>
+<span class="nc" id="L246">            return Result.ofThrowable(-1, throwable);</span>
+<span class="fc" id="L247">        }</span>
+
+<span class="pc bpc" id="L249" title="1 of 2 branches missed.">        if (!publishApis(oldEntity.getApp(), oldEntity.getIp(), oldEntity.getPort())) {</span>
+<span class="nc" id="L250">            logger.warn(&quot;publish gateway apis fail after delete&quot;);</span>
+        }
+
+<span class="fc" id="L253">        return Result.ofSuccess(id);</span>
+    }
+
+    private boolean publishApis(String app, String ip, Integer port) {
+<span class="fc" id="L257">        List&lt;ApiDefinitionEntity&gt; apis = repository.findAllByMachine(MachineInfo.of(app, ip, port));</span>
+<span class="fc" id="L258">        return sentinelApiClient.modifyApis(app, ip, port, apis);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.3.201901230119</span></div></body></html>

@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>InMemoryMetricsRepository.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">sentinel-dashboard</a> &gt; <a href="index.source.html" class="el_package">com.alibaba.csp.sentinel.dashboard.repository.metric</a> &gt; <span class="el_source">InMemoryMetricsRepository.java</span></div><h1>InMemoryMetricsRepository.java</h1><pre class="source lang-java linenums">/*
+ * Copyright 1999-2018 Alibaba Group Holding Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.alibaba.csp.sentinel.dashboard.repository.metric;
+
+import com.alibaba.csp.sentinel.dashboard.datasource.entity.MetricEntity;
+import com.alibaba.csp.sentinel.util.StringUtil;
+import com.alibaba.csp.sentinel.util.TimeUtil;
+import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
+
+/**
+ * Caches metrics data in a period of time in memory.
+ *
+ * @author Carpenter Lee
+ * @author Eric Zhao
+ */
+@Component
+<span class="fc" id="L40">public class InMemoryMetricsRepository implements MetricsRepository&lt;MetricEntity&gt; {</span>
+
+    private static final long MAX_METRIC_LIVE_TIME_MS = 1000 * 60 * 5;
+
+    /**
+     * {@code app -&gt; resource -&gt; timestamp -&gt; metric}
+     */
+<span class="fc" id="L47">    private Map&lt;String, Map&lt;String, LinkedHashMap&lt;Long, MetricEntity&gt;&gt;&gt; allMetrics = new ConcurrentHashMap&lt;&gt;();</span>
+
+<span class="fc" id="L49">    private final ReentrantReadWriteLock readWriteLock = new ReentrantReadWriteLock();</span>
+
+
+    @Override
+    public void save(MetricEntity entity) {
+<span class="pc bpc" id="L54" title="2 of 4 branches missed.">        if (entity == null || StringUtil.isBlank(entity.getApp())) {</span>
+<span class="nc" id="L55">            return;</span>
+        }
+<span class="fc" id="L57">        readWriteLock.writeLock().lock();</span>
+        try {
+<span class="fc" id="L59">            allMetrics.computeIfAbsent(entity.getApp(), e -&gt; new HashMap&lt;&gt;(16))</span>
+<span class="fc" id="L60">                    .computeIfAbsent(entity.getResource(), e -&gt; new LinkedHashMap&lt;Long, MetricEntity&gt;() {</span>
+                        @Override
+                        protected boolean removeEldestEntry(Entry&lt;Long, MetricEntity&gt; eldest) {
+                            // Metric older than {@link #MAX_METRIC_LIVE_TIME_MS} will be removed.
+<span class="pc bpc" id="L64" title="1 of 2 branches missed.">                            return eldest.getKey() &lt; TimeUtil.currentTimeMillis() - MAX_METRIC_LIVE_TIME_MS;</span>
+                        }
+<span class="fc" id="L66">                    }).put(entity.getTimestamp().getTime(), entity);</span>
+        } finally {
+<span class="fc" id="L68">            readWriteLock.writeLock().unlock();</span>
+        }
+
+<span class="fc" id="L71">    }</span>
+
+    @Override
+    public void saveAll(Iterable&lt;MetricEntity&gt; metrics) {
+<span class="pc bpc" id="L75" title="1 of 2 branches missed.">        if (metrics == null) {</span>
+<span class="nc" id="L76">            return;</span>
+        }
+<span class="fc" id="L78">        readWriteLock.writeLock().lock();</span>
+        try {
+<span class="fc" id="L80">            metrics.forEach(this::save);</span>
+        } finally {
+<span class="fc" id="L82">            readWriteLock.writeLock().unlock();</span>
+        }
+<span class="fc" id="L84">    }</span>
+
+    @Override
+    public List&lt;MetricEntity&gt; queryByAppAndResourceBetween(String app, String resource,
+                                                           long startTime, long endTime) {
+<span class="fc" id="L89">        List&lt;MetricEntity&gt; results = new ArrayList&lt;&gt;();</span>
+<span class="pc bpc" id="L90" title="1 of 2 branches missed.">        if (StringUtil.isBlank(app)) {</span>
+<span class="nc" id="L91">            return results;</span>
+        }
+<span class="fc" id="L93">        Map&lt;String, LinkedHashMap&lt;Long, MetricEntity&gt;&gt; resourceMap = allMetrics.get(app);</span>
+<span class="pc bpc" id="L94" title="1 of 2 branches missed.">        if (resourceMap == null) {</span>
+<span class="nc" id="L95">            return results;</span>
+        }
+<span class="fc" id="L97">        LinkedHashMap&lt;Long, MetricEntity&gt; metricsMap = resourceMap.get(resource);</span>
+<span class="pc bpc" id="L98" title="1 of 2 branches missed.">        if (metricsMap == null) {</span>
+<span class="nc" id="L99">            return results;</span>
+        }
+<span class="fc" id="L101">        readWriteLock.readLock().lock();</span>
+        try {
+<span class="fc bfc" id="L103" title="All 2 branches covered.">            for (Entry&lt;Long, MetricEntity&gt; entry : metricsMap.entrySet()) {</span>
+<span class="pc bpc" id="L104" title="1 of 4 branches missed.">                if (entry.getKey() &gt;= startTime &amp;&amp; entry.getKey() &lt;= endTime) {</span>
+<span class="fc" id="L105">                    results.add(entry.getValue());</span>
+                }
+<span class="fc" id="L107">            }</span>
+<span class="fc" id="L108">            return results;</span>
+        } finally {
+<span class="fc" id="L110">            readWriteLock.readLock().unlock();</span>
+        }
+    }
+
+    @Override
+    public List&lt;String&gt; listResourcesOfApp(String app) {
+<span class="fc" id="L116">        List&lt;String&gt; results = new ArrayList&lt;&gt;();</span>
+<span class="pc bpc" id="L117" title="1 of 2 branches missed.">        if (StringUtil.isBlank(app)) {</span>
+<span class="nc" id="L118">            return results;</span>
+        }
+        // resource -&gt; timestamp -&gt; metric
+<span class="fc" id="L121">        Map&lt;String, LinkedHashMap&lt;Long, MetricEntity&gt;&gt; resourceMap = allMetrics.get(app);</span>
+<span class="fc bfc" id="L122" title="All 2 branches covered.">        if (resourceMap == null) {</span>
+<span class="fc" id="L123">            return results;</span>
+        }
+<span class="fc" id="L125">        final long minTimeMs = System.currentTimeMillis() - 1000 * 60;</span>
+<span class="fc" id="L126">        Map&lt;String, MetricEntity&gt; resourceCount = new ConcurrentHashMap&lt;&gt;(32);</span>
+
+<span class="fc" id="L128">        readWriteLock.readLock().lock();</span>
+        try {
+<span class="fc bfc" id="L130" title="All 2 branches covered.">            for (Entry&lt;String, LinkedHashMap&lt;Long, MetricEntity&gt;&gt; resourceMetrics : resourceMap.entrySet()) {</span>
+<span class="fc bfc" id="L131" title="All 2 branches covered.">                for (Entry&lt;Long, MetricEntity&gt; metrics : resourceMetrics.getValue().entrySet()) {</span>
+<span class="pc bpc" id="L132" title="1 of 2 branches missed.">                    if (metrics.getKey() &lt; minTimeMs) {</span>
+<span class="nc" id="L133">                        continue;</span>
+                    }
+<span class="fc" id="L135">                    MetricEntity newEntity = metrics.getValue();</span>
+<span class="fc bfc" id="L136" title="All 2 branches covered.">                    if (resourceCount.containsKey(resourceMetrics.getKey())) {</span>
+<span class="fc" id="L137">                        MetricEntity oldEntity = resourceCount.get(resourceMetrics.getKey());</span>
+<span class="fc" id="L138">                        oldEntity.addPassQps(newEntity.getPassQps());</span>
+<span class="fc" id="L139">                        oldEntity.addRtAndSuccessQps(newEntity.getRt(), newEntity.getSuccessQps());</span>
+<span class="fc" id="L140">                        oldEntity.addBlockQps(newEntity.getBlockQps());</span>
+<span class="fc" id="L141">                        oldEntity.addExceptionQps(newEntity.getExceptionQps());</span>
+<span class="fc" id="L142">                        oldEntity.addCount(1);</span>
+<span class="fc" id="L143">                    } else {</span>
+<span class="fc" id="L144">                        resourceCount.put(resourceMetrics.getKey(), MetricEntity.copyOf(newEntity));</span>
+                    }
+<span class="fc" id="L146">                }</span>
+<span class="fc" id="L147">            }</span>
+            // Order by last minute b_qps DESC.
+<span class="fc" id="L149">            return resourceCount.entrySet()</span>
+<span class="fc" id="L150">                    .stream()</span>
+<span class="fc" id="L151">                    .sorted((o1, o2) -&gt; {</span>
+<span class="fc" id="L152">                        MetricEntity e1 = o1.getValue();</span>
+<span class="fc" id="L153">                        MetricEntity e2 = o2.getValue();</span>
+<span class="fc" id="L154">                        int t = e2.getBlockQps().compareTo(e1.getBlockQps());</span>
+<span class="pc bpc" id="L155" title="1 of 2 branches missed.">                        if (t != 0) {</span>
+<span class="nc" id="L156">                            return t;</span>
+                        }
+<span class="fc" id="L158">                        return e2.getPassQps().compareTo(e1.getPassQps());</span>
+                    })
+<span class="fc" id="L160">                    .map(Entry::getKey)</span>
+<span class="fc" id="L161">                    .collect(Collectors.toList());</span>
+        } finally {
+<span class="fc" id="L163">            readWriteLock.readLock().unlock();</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.3.201901230119</span></div></body></html>

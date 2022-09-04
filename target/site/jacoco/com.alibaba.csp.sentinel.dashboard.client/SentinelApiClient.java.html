@@ -1,0 +1,853 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SentinelApiClient.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">sentinel-dashboard</a> &gt; <a href="index.source.html" class="el_package">com.alibaba.csp.sentinel.dashboard.client</a> &gt; <span class="el_source">SentinelApiClient.java</span></div><h1>SentinelApiClient.java</h1><pre class="source lang-java linenums">/*
+ * Copyright 1999-2018 Alibaba Group Holding Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.alibaba.csp.sentinel.dashboard.client;
+
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
+import java.nio.charset.Charset;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
+
+import com.alibaba.csp.sentinel.adapter.gateway.common.rule.GatewayFlowRule;
+import com.alibaba.csp.sentinel.command.CommandConstants;
+import com.alibaba.csp.sentinel.config.SentinelConfig;
+import com.alibaba.csp.sentinel.command.vo.NodeVo;
+import com.alibaba.csp.sentinel.dashboard.datasource.entity.gateway.ApiDefinitionEntity;
+import com.alibaba.csp.sentinel.dashboard.datasource.entity.gateway.GatewayFlowRuleEntity;
+import com.alibaba.csp.sentinel.dashboard.util.AsyncUtils;
+import com.alibaba.csp.sentinel.slots.block.Rule;
+import com.alibaba.csp.sentinel.slots.block.authority.AuthorityRule;
+import com.alibaba.csp.sentinel.slots.block.degrade.DegradeRule;
+import com.alibaba.csp.sentinel.slots.block.flow.FlowRule;
+import com.alibaba.csp.sentinel.slots.block.flow.param.ParamFlowRule;
+import com.alibaba.csp.sentinel.slots.system.SystemRule;
+import com.alibaba.csp.sentinel.util.AssertUtil;
+import com.alibaba.csp.sentinel.util.StringUtil;
+import com.alibaba.fastjson.JSON;
+import com.alibaba.csp.sentinel.dashboard.datasource.entity.SentinelVersion;
+import com.alibaba.csp.sentinel.dashboard.datasource.entity.rule.AuthorityRuleEntity;
+import com.alibaba.csp.sentinel.dashboard.datasource.entity.rule.DegradeRuleEntity;
+import com.alibaba.csp.sentinel.dashboard.datasource.entity.rule.FlowRuleEntity;
+import com.alibaba.csp.sentinel.dashboard.datasource.entity.rule.ParamFlowRuleEntity;
+import com.alibaba.csp.sentinel.dashboard.datasource.entity.rule.RuleEntity;
+import com.alibaba.csp.sentinel.dashboard.datasource.entity.rule.SystemRuleEntity;
+import com.alibaba.csp.sentinel.dashboard.discovery.AppManagement;
+import com.alibaba.csp.sentinel.dashboard.domain.cluster.ClusterClientInfoVO;
+import com.alibaba.csp.sentinel.dashboard.domain.cluster.state.ClusterServerStateVO;
+import com.alibaba.csp.sentinel.dashboard.domain.cluster.state.ClusterStateSimpleEntity;
+import com.alibaba.csp.sentinel.dashboard.domain.cluster.config.ClusterClientConfig;
+import com.alibaba.csp.sentinel.dashboard.domain.cluster.config.ServerFlowConfig;
+import com.alibaba.csp.sentinel.dashboard.domain.cluster.config.ServerTransportConfig;
+import com.alibaba.csp.sentinel.dashboard.util.VersionUtils;
+
+import org.apache.http.Consts;
+import org.apache.http.HttpResponse;
+import org.apache.http.NameValuePair;
+import org.apache.http.client.entity.UrlEncodedFormEntity;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.client.methods.HttpUriRequest;
+import org.apache.http.client.utils.URLEncodedUtils;
+import org.apache.http.concurrent.FutureCallback;
+import org.apache.http.entity.ContentType;
+import org.apache.http.impl.client.DefaultRedirectStrategy;
+import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
+import org.apache.http.impl.nio.client.HttpAsyncClients;
+import org.apache.http.impl.nio.reactor.IOReactorConfig;
+import org.apache.http.message.BasicNameValuePair;
+import org.apache.http.util.EntityUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.lang.Nullable;
+import org.springframework.stereotype.Component;
+
+/**
+ * Communicate with Sentinel client.
+ *
+ * @author leyou
+ */
+@Component
+public class SentinelApiClient {
+<span class="fc" id="L94">    private static Logger logger = LoggerFactory.getLogger(SentinelApiClient.class);</span>
+
+<span class="fc" id="L96">    private static final Charset DEFAULT_CHARSET = Charset.forName(SentinelConfig.charset());</span>
+    private static final String HTTP_HEADER_CONTENT_TYPE = &quot;Content-Type&quot;;
+<span class="fc" id="L98">    private static final String HTTP_HEADER_CONTENT_TYPE_URLENCODED = ContentType.create(URLEncodedUtils.CONTENT_TYPE).toString();</span>
+
+    private static final String RESOURCE_URL_PATH = &quot;jsonTree&quot;;
+    private static final String CLUSTER_NODE_PATH = &quot;clusterNode&quot;;
+    private static final String GET_RULES_PATH = &quot;getRules&quot;;
+    private static final String SET_RULES_PATH = &quot;setRules&quot;;
+    private static final String GET_PARAM_RULE_PATH = &quot;getParamFlowRules&quot;;
+    private static final String SET_PARAM_RULE_PATH = &quot;setParamFlowRules&quot;;
+
+    private static final String FETCH_CLUSTER_MODE_PATH = &quot;getClusterMode&quot;;
+    private static final String MODIFY_CLUSTER_MODE_PATH = &quot;setClusterMode&quot;;
+    private static final String FETCH_CLUSTER_CLIENT_CONFIG_PATH = &quot;cluster/client/fetchConfig&quot;;
+    private static final String MODIFY_CLUSTER_CLIENT_CONFIG_PATH = &quot;cluster/client/modifyConfig&quot;;
+
+    private static final String FETCH_CLUSTER_SERVER_BASIC_INFO_PATH = &quot;cluster/server/info&quot;;
+
+    private static final String MODIFY_CLUSTER_SERVER_TRANSPORT_CONFIG_PATH = &quot;cluster/server/modifyTransportConfig&quot;;
+    private static final String MODIFY_CLUSTER_SERVER_FLOW_CONFIG_PATH = &quot;cluster/server/modifyFlowConfig&quot;;
+    private static final String MODIFY_CLUSTER_SERVER_NAMESPACE_SET_PATH = &quot;cluster/server/modifyNamespaceSet&quot;;
+
+    private static final String FETCH_GATEWAY_API_PATH = &quot;gateway/getApiDefinitions&quot;;
+    private static final String MODIFY_GATEWAY_API_PATH = &quot;gateway/updateApiDefinitions&quot;;
+
+    private static final String FETCH_GATEWAY_FLOW_RULE_PATH = &quot;gateway/getRules&quot;;
+    private static final String MODIFY_GATEWAY_FLOW_RULE_PATH = &quot;gateway/updateRules&quot;;
+
+    private static final String FLOW_RULE_TYPE = &quot;flow&quot;;
+    private static final String DEGRADE_RULE_TYPE = &quot;degrade&quot;;
+    private static final String SYSTEM_RULE_TYPE = &quot;system&quot;;
+    private static final String AUTHORITY_TYPE = &quot;authority&quot;;
+
+    private CloseableHttpAsyncClient httpClient;
+
+<span class="fc" id="L131">    private static final SentinelVersion version160 = new SentinelVersion(1, 6, 0);</span>
+<span class="fc" id="L132">    private static final SentinelVersion version171 = new SentinelVersion(1, 7, 1);</span>
+    
+    @Autowired
+    private AppManagement appManagement;
+
+<span class="nc" id="L137">    public SentinelApiClient() {</span>
+<span class="nc" id="L138">        IOReactorConfig ioConfig = IOReactorConfig.custom().setConnectTimeout(3000).setSoTimeout(10000)</span>
+<span class="nc" id="L139">            .setIoThreadCount(Runtime.getRuntime().availableProcessors() * 2).build();</span>
+<span class="nc" id="L140">        httpClient = HttpAsyncClients.custom().setRedirectStrategy(new DefaultRedirectStrategy() {</span>
+            @Override
+            protected boolean isRedirectable(final String method) {
+<span class="nc" id="L143">                return false;</span>
+            }
+<span class="nc" id="L145">        }).setMaxConnTotal(4000).setMaxConnPerRoute(1000).setDefaultIOReactorConfig(ioConfig).build();</span>
+<span class="nc" id="L146">        httpClient.start();</span>
+<span class="nc" id="L147">    }</span>
+
+    private boolean isSuccess(int statusCode) {
+<span class="nc bnc" id="L150" title="All 4 branches missed.">        return statusCode &gt;= 200 &amp;&amp; statusCode &lt; 300;</span>
+    }
+    
+    private boolean isCommandNotFound(int statusCode, String body) {
+<span class="nc bnc" id="L154" title="All 6 branches missed.">        return statusCode == 400 &amp;&amp; StringUtil.isNotEmpty(body) &amp;&amp; body.contains(CommandConstants.MSG_UNKNOWN_COMMAND_PREFIX);</span>
+    }
+    
+    protected boolean isSupportPost(String app, String ip, int port) {
+<span class="nc bnc" id="L158" title="All 2 branches missed.">        return StringUtil.isNotEmpty(app) &amp;&amp; Optional.ofNullable(appManagement.getDetailApp(app))</span>
+<span class="nc" id="L159">                .flatMap(e -&gt; e.getMachine(ip, port))</span>
+<span class="nc" id="L160">                .flatMap(m -&gt; VersionUtils.parseVersion(m.getVersion())</span>
+<span class="nc" id="L161">                    .map(v -&gt; v.greaterOrEqual(version160)))</span>
+<span class="nc bnc" id="L162" title="All 2 branches missed.">                .orElse(false);</span>
+    }
+    
+    /**
+     * Check wheter target instance (identified by tuple of app-ip:port)
+     * supports the form of &quot;xxxxx; xx=xx&quot; in &quot;Content-Type&quot; header.
+     * 
+     * @param app target app name
+     * @param ip target node's address
+     * @param port target node's port
+     */
+    protected boolean isSupportEnhancedContentType(String app, String ip, int port) {
+<span class="nc bnc" id="L174" title="All 2 branches missed.">        return StringUtil.isNotEmpty(app) &amp;&amp; Optional.ofNullable(appManagement.getDetailApp(app))</span>
+<span class="nc" id="L175">                .flatMap(e -&gt; e.getMachine(ip, port))</span>
+<span class="nc" id="L176">                .flatMap(m -&gt; VersionUtils.parseVersion(m.getVersion())</span>
+<span class="nc" id="L177">                    .map(v -&gt; v.greaterOrEqual(version171)))</span>
+<span class="nc bnc" id="L178" title="All 2 branches missed.">                .orElse(false);</span>
+    }
+    
+    private StringBuilder queryString(Map&lt;String, String&gt; params) {
+<span class="nc" id="L182">        StringBuilder queryStringBuilder = new StringBuilder();</span>
+<span class="nc bnc" id="L183" title="All 2 branches missed.">        for (Entry&lt;String, String&gt; entry : params.entrySet()) {</span>
+<span class="nc bnc" id="L184" title="All 2 branches missed.">            if (StringUtil.isEmpty(entry.getValue())) {</span>
+<span class="nc" id="L185">                continue;</span>
+            }
+<span class="nc" id="L187">            String name = urlEncode(entry.getKey());</span>
+<span class="nc" id="L188">            String value = urlEncode(entry.getValue());</span>
+<span class="nc bnc" id="L189" title="All 4 branches missed.">            if (name != null &amp;&amp; value != null) {</span>
+<span class="nc bnc" id="L190" title="All 2 branches missed.">                if (queryStringBuilder.length() &gt; 0) {</span>
+<span class="nc" id="L191">                    queryStringBuilder.append('&amp;');</span>
+                }
+<span class="nc" id="L193">                queryStringBuilder.append(name).append('=').append(value);</span>
+            }
+<span class="nc" id="L195">        }</span>
+<span class="nc" id="L196">        return queryStringBuilder;</span>
+    }
+    
+    /**
+     * Build an `HttpUriRequest` in POST way.
+     * 
+     * @param url
+     * @param params
+     * @param supportEnhancedContentType see {@link #isSupportEnhancedContentType(String, String, int)}
+     * @return
+     */
+    protected static HttpUriRequest postRequest(String url, Map&lt;String, String&gt; params, boolean supportEnhancedContentType) {
+<span class="fc" id="L208">        HttpPost httpPost = new HttpPost(url);</span>
+<span class="pc bpc" id="L209" title="2 of 4 branches missed.">        if (params != null &amp;&amp; params.size() &gt; 0) {</span>
+<span class="fc" id="L210">            List&lt;NameValuePair&gt; list = new ArrayList&lt;&gt;(params.size());</span>
+<span class="fc bfc" id="L211" title="All 2 branches covered.">            for (Entry&lt;String, String&gt; entry : params.entrySet()) {</span>
+<span class="fc" id="L212">                list.add(new BasicNameValuePair(entry.getKey(), entry.getValue()));</span>
+<span class="fc" id="L213">            }</span>
+<span class="fc" id="L214">            httpPost.setEntity(new UrlEncodedFormEntity(list, Consts.UTF_8));</span>
+<span class="fc bfc" id="L215" title="All 2 branches covered.">            if (!supportEnhancedContentType) {</span>
+<span class="fc" id="L216">                httpPost.setHeader(HTTP_HEADER_CONTENT_TYPE, HTTP_HEADER_CONTENT_TYPE_URLENCODED);</span>
+            }
+        }
+<span class="fc" id="L219">        return httpPost;</span>
+    }
+    
+    private String urlEncode(String str) {
+        try {
+<span class="nc" id="L224">            return URLEncoder.encode(str, DEFAULT_CHARSET.name());</span>
+<span class="nc" id="L225">        } catch (UnsupportedEncodingException e) {</span>
+<span class="nc" id="L226">            logger.info(&quot;encode string error: {}&quot;, str, e);</span>
+<span class="nc" id="L227">            return null;</span>
+        }
+    }
+    
+    private String getBody(HttpResponse response) throws Exception {
+<span class="nc" id="L232">        Charset charset = null;</span>
+        try {
+<span class="nc" id="L234">            String contentTypeStr = response.getFirstHeader(HTTP_HEADER_CONTENT_TYPE).getValue();</span>
+<span class="nc bnc" id="L235" title="All 2 branches missed.">            if (StringUtil.isNotEmpty(contentTypeStr)) {</span>
+<span class="nc" id="L236">                ContentType contentType = ContentType.parse(contentTypeStr);</span>
+<span class="nc" id="L237">                charset = contentType.getCharset();</span>
+            }
+<span class="nc" id="L239">        } catch (Exception ignore) {</span>
+<span class="nc" id="L240">        }</span>
+<span class="nc bnc" id="L241" title="All 2 branches missed.">        return EntityUtils.toString(response.getEntity(), charset != null ? charset : DEFAULT_CHARSET);</span>
+    }
+    
+    /**
+     * With no param
+     * 
+     * @param ip
+     * @param port
+     * @param api
+     * @return
+     */
+    private CompletableFuture&lt;String&gt; executeCommand(String ip, int port, String api, boolean useHttpPost) {
+<span class="nc" id="L253">        return executeCommand(ip, port, api, null, useHttpPost);</span>
+    }
+    
+    /**
+     * No app specified, force to GET
+     * 
+     * @param ip
+     * @param port
+     * @param api
+     * @param params
+     * @return
+     */
+    private CompletableFuture&lt;String&gt; executeCommand(String ip, int port, String api, Map&lt;String, String&gt; params, boolean useHttpPost) {
+<span class="nc" id="L266">        return executeCommand(null, ip, port, api, params, useHttpPost);</span>
+    }
+
+    /**
+     * Prefer to execute request using POST
+     * 
+     * @param app
+     * @param ip
+     * @param port
+     * @param api
+     * @param params
+     * @return
+     */
+    private CompletableFuture&lt;String&gt; executeCommand(String app, String ip, int port, String api, Map&lt;String, String&gt; params, boolean useHttpPost) {
+<span class="nc" id="L280">        CompletableFuture&lt;String&gt; future = new CompletableFuture&lt;&gt;();</span>
+<span class="nc bnc" id="L281" title="All 4 branches missed.">        if (StringUtil.isBlank(ip) || StringUtil.isBlank(api)) {</span>
+<span class="nc" id="L282">            future.completeExceptionally(new IllegalArgumentException(&quot;Bad URL or command name&quot;));</span>
+<span class="nc" id="L283">            return future;</span>
+        }
+<span class="nc" id="L285">        StringBuilder urlBuilder = new StringBuilder();</span>
+<span class="nc" id="L286">        urlBuilder.append(&quot;http://&quot;);</span>
+<span class="nc" id="L287">        urlBuilder.append(ip).append(':').append(port).append('/').append(api);</span>
+<span class="nc bnc" id="L288" title="All 2 branches missed.">        if (params == null) {</span>
+<span class="nc" id="L289">            params = Collections.emptyMap();</span>
+        }
+<span class="nc bnc" id="L291" title="All 4 branches missed.">        if (!useHttpPost || !isSupportPost(app, ip, port)) {</span>
+            // Using GET in older versions, append parameters after url
+<span class="nc bnc" id="L293" title="All 2 branches missed.">            if (!params.isEmpty()) {</span>
+<span class="nc bnc" id="L294" title="All 2 branches missed.">                if (urlBuilder.indexOf(&quot;?&quot;) == -1) {</span>
+<span class="nc" id="L295">                    urlBuilder.append('?');</span>
+                } else {
+<span class="nc" id="L297">                    urlBuilder.append('&amp;');</span>
+                }
+<span class="nc" id="L299">                urlBuilder.append(queryString(params));</span>
+            }
+<span class="nc" id="L301">            return executeCommand(new HttpGet(urlBuilder.toString()));</span>
+        } else {
+            // Using POST
+<span class="nc" id="L304">            return executeCommand(</span>
+<span class="nc" id="L305">                    postRequest(urlBuilder.toString(), params, isSupportEnhancedContentType(app, ip, port)));</span>
+        }
+    }
+    
+    private CompletableFuture&lt;String&gt; executeCommand(HttpUriRequest request) {
+<span class="nc" id="L310">        CompletableFuture&lt;String&gt; future = new CompletableFuture&lt;&gt;();</span>
+<span class="nc" id="L311">        httpClient.execute(request, new FutureCallback&lt;HttpResponse&gt;() {</span>
+            @Override
+            public void completed(final HttpResponse response) {
+<span class="nc" id="L314">                int statusCode = response.getStatusLine().getStatusCode();</span>
+                try {
+<span class="nc" id="L316">                    String value = getBody(response);</span>
+<span class="nc bnc" id="L317" title="All 2 branches missed.">                    if (isSuccess(statusCode)) {</span>
+<span class="nc" id="L318">                        future.complete(value);</span>
+                    } else {
+<span class="nc bnc" id="L320" title="All 2 branches missed.">                        if (isCommandNotFound(statusCode, value)) {</span>
+<span class="nc" id="L321">                            future.completeExceptionally(new CommandNotFoundException(request.getURI().getPath()));</span>
+                        } else {
+<span class="nc" id="L323">                            future.completeExceptionally(new CommandFailedException(value));</span>
+                        }
+                    }
+
+<span class="nc" id="L327">                } catch (Exception ex) {</span>
+<span class="nc" id="L328">                    future.completeExceptionally(ex);</span>
+<span class="nc" id="L329">                    logger.error(&quot;HTTP request failed: {}&quot;, request.getURI().toString(), ex);</span>
+<span class="nc" id="L330">                }</span>
+<span class="nc" id="L331">            }</span>
+
+            @Override
+            public void failed(final Exception ex) {
+<span class="nc" id="L335">                future.completeExceptionally(ex);</span>
+<span class="nc" id="L336">                logger.error(&quot;HTTP request failed: {}&quot;, request.getURI().toString(), ex);</span>
+<span class="nc" id="L337">            }</span>
+
+            @Override
+            public void cancelled() {
+<span class="nc" id="L341">                future.complete(null);</span>
+<span class="nc" id="L342">            }</span>
+        });
+<span class="nc" id="L344">        return future;</span>
+    }
+    
+    public void close() throws Exception {
+<span class="nc" id="L348">        httpClient.close();</span>
+<span class="nc" id="L349">    }</span>
+    
+    @Nullable
+    private &lt;T&gt; CompletableFuture&lt;List&lt;T&gt;&gt; fetchItemsAsync(String ip, int port, String api, String type, Class&lt;T&gt; ruleType) {
+<span class="nc" id="L353">        AssertUtil.notEmpty(ip, &quot;Bad machine IP&quot;);</span>
+<span class="nc bnc" id="L354" title="All 2 branches missed.">        AssertUtil.isTrue(port &gt; 0, &quot;Bad machine port&quot;);</span>
+<span class="nc" id="L355">        Map&lt;String, String&gt; params = null;</span>
+<span class="nc bnc" id="L356" title="All 2 branches missed.">        if (StringUtil.isNotEmpty(type)) {</span>
+<span class="nc" id="L357">            params = new HashMap&lt;&gt;(1);</span>
+<span class="nc" id="L358">            params.put(&quot;type&quot;, type);</span>
+        }
+<span class="nc" id="L360">        return executeCommand(ip, port, api, params, false)</span>
+<span class="nc" id="L361">                .thenApply(json -&gt; JSON.parseArray(json, ruleType));</span>
+    }
+    
+    @Nullable
+    private &lt;T&gt; List&lt;T&gt; fetchItems(String ip, int port, String api, String type, Class&lt;T&gt; ruleType) {
+        try {
+<span class="nc" id="L367">            AssertUtil.notEmpty(ip, &quot;Bad machine IP&quot;);</span>
+<span class="nc bnc" id="L368" title="All 2 branches missed.">            AssertUtil.isTrue(port &gt; 0, &quot;Bad machine port&quot;);</span>
+<span class="nc" id="L369">            Map&lt;String, String&gt; params = null;</span>
+<span class="nc bnc" id="L370" title="All 2 branches missed.">            if (StringUtil.isNotEmpty(type)) {</span>
+<span class="nc" id="L371">                params = new HashMap&lt;&gt;(1);</span>
+<span class="nc" id="L372">                params.put(&quot;type&quot;, type);</span>
+            }
+<span class="nc" id="L374">            return fetchItemsAsync(ip, port, api, type, ruleType).get();</span>
+<span class="nc" id="L375">        } catch (InterruptedException | ExecutionException e) {</span>
+<span class="nc" id="L376">            logger.error(&quot;Error when fetching items from api: {} -&gt; {}&quot;, api, type, e);</span>
+<span class="nc" id="L377">            return null;</span>
+<span class="nc" id="L378">        } catch (Exception e) {</span>
+<span class="nc" id="L379">            logger.error(&quot;Error when fetching items: {} -&gt; {}&quot;, api, type, e);</span>
+<span class="nc" id="L380">            return null;</span>
+        }
+    }
+    
+    private &lt;T extends Rule&gt; List&lt;T&gt; fetchRules(String ip, int port, String type, Class&lt;T&gt; ruleType) {
+<span class="nc" id="L385">        return fetchItems(ip, port, GET_RULES_PATH, type, ruleType);</span>
+    }
+    
+    private boolean setRules(String app, String ip, int port, String type, List&lt;? extends RuleEntity&gt; entities) {
+<span class="nc bnc" id="L389" title="All 2 branches missed.">        if (entities == null) {</span>
+<span class="nc" id="L390">            return true;</span>
+        }
+        try {
+<span class="nc" id="L393">            AssertUtil.notEmpty(app, &quot;Bad app name&quot;);</span>
+<span class="nc" id="L394">            AssertUtil.notEmpty(ip, &quot;Bad machine IP&quot;);</span>
+<span class="nc bnc" id="L395" title="All 2 branches missed.">            AssertUtil.isTrue(port &gt; 0, &quot;Bad machine port&quot;);</span>
+<span class="nc" id="L396">            String data = JSON.toJSONString(</span>
+<span class="nc" id="L397">                    entities.stream().map(r -&gt; r.toRule()).collect(Collectors.toList()));</span>
+<span class="nc" id="L398">            Map&lt;String, String&gt; params = new HashMap&lt;&gt;(2);</span>
+<span class="nc" id="L399">            params.put(&quot;type&quot;, type);</span>
+<span class="nc" id="L400">            params.put(&quot;data&quot;, data);</span>
+<span class="nc" id="L401">            String result = executeCommand(app, ip, port, SET_RULES_PATH, params, true).get();</span>
+<span class="nc" id="L402">            logger.info(&quot;setRules result: {}, type={}&quot;, result, type);</span>
+<span class="nc" id="L403">            return true;</span>
+<span class="nc" id="L404">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L405">            logger.warn(&quot;setRules API failed: {}&quot;, type, e);</span>
+<span class="nc" id="L406">            return false;</span>
+<span class="nc" id="L407">        } catch (ExecutionException e) {</span>
+<span class="nc" id="L408">            logger.warn(&quot;setRules API failed: {}&quot;, type, e.getCause());</span>
+<span class="nc" id="L409">            return false;</span>
+<span class="nc" id="L410">        } catch (Exception e) {</span>
+<span class="nc" id="L411">            logger.error(&quot;setRules API failed, type={}&quot;, type, e);</span>
+<span class="nc" id="L412">            return false;</span>
+        }
+    }
+
+    private CompletableFuture&lt;Void&gt; setRulesAsync(String app, String ip, int port, String type, List&lt;? extends RuleEntity&gt; entities) {
+        try {
+<span class="nc" id="L418">            AssertUtil.notNull(entities, &quot;rules cannot be null&quot;);</span>
+<span class="nc" id="L419">            AssertUtil.notEmpty(app, &quot;Bad app name&quot;);</span>
+<span class="nc" id="L420">            AssertUtil.notEmpty(ip, &quot;Bad machine IP&quot;);</span>
+<span class="nc bnc" id="L421" title="All 2 branches missed.">            AssertUtil.isTrue(port &gt; 0, &quot;Bad machine port&quot;);</span>
+<span class="nc" id="L422">            String data = JSON.toJSONString(</span>
+<span class="nc" id="L423">                entities.stream().map(r -&gt; r.toRule()).collect(Collectors.toList()));</span>
+<span class="nc" id="L424">            Map&lt;String, String&gt; params = new HashMap&lt;&gt;(2);</span>
+<span class="nc" id="L425">            params.put(&quot;type&quot;, type);</span>
+<span class="nc" id="L426">            params.put(&quot;data&quot;, data);</span>
+<span class="nc" id="L427">            return executeCommand(app, ip, port, SET_RULES_PATH, params, true)</span>
+<span class="nc" id="L428">                .thenCompose(r -&gt; {</span>
+<span class="nc bnc" id="L429" title="All 2 branches missed.">                    if (&quot;success&quot;.equalsIgnoreCase(r.trim())) {</span>
+<span class="nc" id="L430">                        return CompletableFuture.completedFuture(null);</span>
+                    }
+<span class="nc" id="L432">                    return AsyncUtils.newFailedFuture(new CommandFailedException(r));</span>
+                });
+<span class="nc" id="L434">        } catch (Exception e) {</span>
+<span class="nc" id="L435">            logger.error(&quot;setRulesAsync API failed, type={}&quot;, type, e);</span>
+<span class="nc" id="L436">            return AsyncUtils.newFailedFuture(e);</span>
+        }
+    }
+
+    public List&lt;NodeVo&gt; fetchResourceOfMachine(String ip, int port, String type) {
+<span class="nc" id="L441">        return fetchItems(ip, port, RESOURCE_URL_PATH, type, NodeVo.class);</span>
+    }
+
+    /**
+     * Fetch cluster node.
+     *
+     * @param ip          ip to fetch
+     * @param port        port of the ip
+     * @param includeZero whether zero value should in the result list.
+     * @return
+     */
+    public List&lt;NodeVo&gt; fetchClusterNodeOfMachine(String ip, int port, boolean includeZero) {
+<span class="nc" id="L453">        String type = &quot;notZero&quot;;</span>
+<span class="nc bnc" id="L454" title="All 2 branches missed.">        if (includeZero) {</span>
+<span class="nc" id="L455">            type = &quot;zero&quot;;</span>
+        }
+<span class="nc" id="L457">        return fetchItems(ip, port, CLUSTER_NODE_PATH, type, NodeVo.class);</span>
+    }
+
+    public List&lt;FlowRuleEntity&gt; fetchFlowRuleOfMachine(String app, String ip, int port) {
+<span class="nc" id="L461">        List&lt;FlowRule&gt; rules = fetchRules(ip, port, FLOW_RULE_TYPE, FlowRule.class);</span>
+<span class="nc bnc" id="L462" title="All 2 branches missed.">        if (rules != null) {</span>
+<span class="nc" id="L463">            return rules.stream().map(rule -&gt; FlowRuleEntity.fromFlowRule(app, ip, port, rule))</span>
+<span class="nc" id="L464">                .collect(Collectors.toList());</span>
+        } else {
+<span class="nc" id="L466">            return null;</span>
+        }
+    }
+
+    public List&lt;DegradeRuleEntity&gt; fetchDegradeRuleOfMachine(String app, String ip, int port) {
+<span class="nc" id="L471">        List&lt;DegradeRule&gt; rules = fetchRules(ip, port, DEGRADE_RULE_TYPE, DegradeRule.class);</span>
+<span class="nc bnc" id="L472" title="All 2 branches missed.">        if (rules != null) {</span>
+<span class="nc" id="L473">            return rules.stream().map(rule -&gt; DegradeRuleEntity.fromDegradeRule(app, ip, port, rule))</span>
+<span class="nc" id="L474">                .collect(Collectors.toList());</span>
+        } else {
+<span class="nc" id="L476">            return null;</span>
+        }
+    }
+
+    public List&lt;SystemRuleEntity&gt; fetchSystemRuleOfMachine(String app, String ip, int port) {
+<span class="nc" id="L481">        List&lt;SystemRule&gt; rules = fetchRules(ip, port, SYSTEM_RULE_TYPE, SystemRule.class);</span>
+<span class="nc bnc" id="L482" title="All 2 branches missed.">        if (rules != null) {</span>
+<span class="nc" id="L483">            return rules.stream().map(rule -&gt; SystemRuleEntity.fromSystemRule(app, ip, port, rule))</span>
+<span class="nc" id="L484">                .collect(Collectors.toList());</span>
+        } else {
+<span class="nc" id="L486">            return null;</span>
+        }
+    }
+
+    /**
+     * Fetch all parameter flow rules from provided machine.
+     *
+     * @param app  application name
+     * @param ip   machine client IP
+     * @param port machine client port
+     * @return all retrieved parameter flow rules
+     * @since 0.2.1
+     */
+    public CompletableFuture&lt;List&lt;ParamFlowRuleEntity&gt;&gt; fetchParamFlowRulesOfMachine(String app, String ip, int port) {
+        try {
+<span class="nc" id="L501">            AssertUtil.notEmpty(app, &quot;Bad app name&quot;);</span>
+<span class="nc" id="L502">            AssertUtil.notEmpty(ip, &quot;Bad machine IP&quot;);</span>
+<span class="nc bnc" id="L503" title="All 2 branches missed.">            AssertUtil.isTrue(port &gt; 0, &quot;Bad machine port&quot;);</span>
+<span class="nc" id="L504">            return fetchItemsAsync(ip, port, GET_PARAM_RULE_PATH, null, ParamFlowRule.class)</span>
+<span class="nc" id="L505">                .thenApply(rules -&gt; rules.stream()</span>
+<span class="nc" id="L506">                    .map(e -&gt; ParamFlowRuleEntity.fromAuthorityRule(app, ip, port, e))</span>
+<span class="nc" id="L507">                    .collect(Collectors.toList())</span>
+                );
+<span class="nc" id="L509">        } catch (Exception e) {</span>
+<span class="nc" id="L510">            logger.error(&quot;Error when fetching parameter flow rules&quot;, e);</span>
+<span class="nc" id="L511">            return AsyncUtils.newFailedFuture(e);</span>
+        }
+    }
+
+    /**
+     * Fetch all authority rules from provided machine.
+     *
+     * @param app  application name
+     * @param ip   machine client IP
+     * @param port machine client port
+     * @return all retrieved authority rules
+     * @since 0.2.1
+     */
+    public List&lt;AuthorityRuleEntity&gt; fetchAuthorityRulesOfMachine(String app, String ip, int port) {
+<span class="nc" id="L525">        AssertUtil.notEmpty(app, &quot;Bad app name&quot;);</span>
+<span class="nc" id="L526">        AssertUtil.notEmpty(ip, &quot;Bad machine IP&quot;);</span>
+<span class="nc bnc" id="L527" title="All 2 branches missed.">        AssertUtil.isTrue(port &gt; 0, &quot;Bad machine port&quot;);</span>
+<span class="nc" id="L528">        Map&lt;String, String&gt; params = new HashMap&lt;&gt;(1);</span>
+<span class="nc" id="L529">        params.put(&quot;type&quot;, AUTHORITY_TYPE);</span>
+<span class="nc" id="L530">        List&lt;AuthorityRule&gt; rules = fetchRules(ip, port, AUTHORITY_TYPE, AuthorityRule.class);</span>
+<span class="nc" id="L531">        return Optional.ofNullable(rules).map(r -&gt; r.stream()</span>
+<span class="nc" id="L532">                    .map(e -&gt; AuthorityRuleEntity.fromAuthorityRule(app, ip, port, e))</span>
+<span class="nc" id="L533">                    .collect(Collectors.toList())</span>
+<span class="nc" id="L534">                ).orElse(null);</span>
+    }
+
+    /**
+     * set rules of the machine. rules == null will return immediately;
+     * rules.isEmpty() means setting the rules to empty.
+     *
+     * @param app
+     * @param ip
+     * @param port
+     * @param rules
+     * @return whether successfully set the rules.
+     */
+    public boolean setFlowRuleOfMachine(String app, String ip, int port, List&lt;FlowRuleEntity&gt; rules) {
+<span class="nc" id="L548">        return setRules(app, ip, port, FLOW_RULE_TYPE, rules);</span>
+    }
+
+    public CompletableFuture&lt;Void&gt; setFlowRuleOfMachineAsync(String app, String ip, int port, List&lt;FlowRuleEntity&gt; rules) {
+<span class="nc" id="L552">        return setRulesAsync(app, ip, port, FLOW_RULE_TYPE, rules);</span>
+    }
+
+    /**
+     * set rules of the machine. rules == null will return immediately;
+     * rules.isEmpty() means setting the rules to empty.
+     *
+     * @param app
+     * @param ip
+     * @param port
+     * @param rules
+     * @return whether successfully set the rules.
+     */
+    public boolean setDegradeRuleOfMachine(String app, String ip, int port, List&lt;DegradeRuleEntity&gt; rules) {
+<span class="nc" id="L566">        return setRules(app, ip, port, DEGRADE_RULE_TYPE, rules);</span>
+    }
+
+    /**
+     * set rules of the machine. rules == null will return immediately;
+     * rules.isEmpty() means setting the rules to empty.
+     *
+     * @param app
+     * @param ip
+     * @param port
+     * @param rules
+     * @return whether successfully set the rules.
+     */
+    public boolean setSystemRuleOfMachine(String app, String ip, int port, List&lt;SystemRuleEntity&gt; rules) {
+<span class="nc" id="L580">        return setRules(app, ip, port, SYSTEM_RULE_TYPE, rules);</span>
+    }
+
+    public boolean setAuthorityRuleOfMachine(String app, String ip, int port, List&lt;AuthorityRuleEntity&gt; rules) {
+<span class="nc" id="L584">        return setRules(app, ip, port, AUTHORITY_TYPE, rules);</span>
+    }
+
+    public CompletableFuture&lt;Void&gt; setParamFlowRuleOfMachine(String app, String ip, int port, List&lt;ParamFlowRuleEntity&gt; rules) {
+<span class="nc bnc" id="L588" title="All 2 branches missed.">        if (rules == null) {</span>
+<span class="nc" id="L589">            return CompletableFuture.completedFuture(null);</span>
+        }
+<span class="nc bnc" id="L591" title="All 4 branches missed.">        if (StringUtil.isBlank(ip) || port &lt;= 0) {</span>
+<span class="nc" id="L592">            return AsyncUtils.newFailedFuture(new IllegalArgumentException(&quot;Invalid parameter&quot;));</span>
+        }
+        try {
+<span class="nc" id="L595">            String data = JSON.toJSONString(</span>
+<span class="nc" id="L596">                rules.stream().map(ParamFlowRuleEntity::getRule).collect(Collectors.toList())</span>
+            );
+<span class="nc" id="L598">            Map&lt;String, String&gt; params = new HashMap&lt;&gt;(1);</span>
+<span class="nc" id="L599">            params.put(&quot;data&quot;, data);</span>
+<span class="nc" id="L600">            return executeCommand(app, ip, port, SET_PARAM_RULE_PATH, params, true)</span>
+<span class="nc" id="L601">                .thenCompose(e -&gt; {</span>
+<span class="nc bnc" id="L602" title="All 2 branches missed.">                    if (CommandConstants.MSG_SUCCESS.equals(e)) {</span>
+<span class="nc" id="L603">                        return CompletableFuture.completedFuture(null);</span>
+                    } else {
+<span class="nc" id="L605">                        logger.warn(&quot;Push parameter flow rules to client failed: &quot; + e);</span>
+<span class="nc" id="L606">                        return AsyncUtils.newFailedFuture(new RuntimeException(e));</span>
+                    }
+                });
+<span class="nc" id="L609">        } catch (Exception ex) {</span>
+<span class="nc" id="L610">            logger.warn(&quot;Error when setting parameter flow rule&quot;, ex);</span>
+<span class="nc" id="L611">            return AsyncUtils.newFailedFuture(ex);</span>
+        }
+    }
+
+    // Cluster related
+
+    public CompletableFuture&lt;ClusterStateSimpleEntity&gt; fetchClusterMode(String ip, int port) {
+<span class="nc bnc" id="L618" title="All 4 branches missed.">        if (StringUtil.isBlank(ip) || port &lt;= 0) {</span>
+<span class="nc" id="L619">            return AsyncUtils.newFailedFuture(new IllegalArgumentException(&quot;Invalid parameter&quot;));</span>
+        }
+        try {
+<span class="nc" id="L622">            return executeCommand(ip, port, FETCH_CLUSTER_MODE_PATH, false)</span>
+<span class="nc" id="L623">                .thenApply(r -&gt; JSON.parseObject(r, ClusterStateSimpleEntity.class));</span>
+<span class="nc" id="L624">        } catch (Exception ex) {</span>
+<span class="nc" id="L625">            logger.warn(&quot;Error when fetching cluster mode&quot;, ex);</span>
+<span class="nc" id="L626">            return AsyncUtils.newFailedFuture(ex);</span>
+        }
+    }
+
+    public CompletableFuture&lt;Void&gt; modifyClusterMode(String ip, int port, int mode) {
+<span class="nc bnc" id="L631" title="All 4 branches missed.">        if (StringUtil.isBlank(ip) || port &lt;= 0) {</span>
+<span class="nc" id="L632">            return AsyncUtils.newFailedFuture(new IllegalArgumentException(&quot;Invalid parameter&quot;));</span>
+        }
+        try {
+<span class="nc" id="L635">            Map&lt;String, String&gt; params = new HashMap&lt;&gt;(1);</span>
+<span class="nc" id="L636">            params.put(&quot;mode&quot;, String.valueOf(mode));</span>
+<span class="nc" id="L637">            return executeCommand(ip, port, MODIFY_CLUSTER_MODE_PATH, params, false)</span>
+<span class="nc" id="L638">                .thenCompose(e -&gt; {</span>
+<span class="nc bnc" id="L639" title="All 2 branches missed.">                    if (CommandConstants.MSG_SUCCESS.equals(e)) {</span>
+<span class="nc" id="L640">                        return CompletableFuture.completedFuture(null);</span>
+                    } else {
+<span class="nc" id="L642">                        logger.warn(&quot;Error when modifying cluster mode: &quot; + e);</span>
+<span class="nc" id="L643">                        return AsyncUtils.newFailedFuture(new RuntimeException(e));</span>
+                    }
+                });
+<span class="nc" id="L646">        } catch (Exception ex) {</span>
+<span class="nc" id="L647">            logger.warn(&quot;Error when modifying cluster mode&quot;, ex);</span>
+<span class="nc" id="L648">            return AsyncUtils.newFailedFuture(ex);</span>
+        }
+    }
+
+    public CompletableFuture&lt;ClusterClientInfoVO&gt; fetchClusterClientInfoAndConfig(String ip, int port) {
+<span class="nc bnc" id="L653" title="All 4 branches missed.">        if (StringUtil.isBlank(ip) || port &lt;= 0) {</span>
+<span class="nc" id="L654">            return AsyncUtils.newFailedFuture(new IllegalArgumentException(&quot;Invalid parameter&quot;));</span>
+        }
+        try {
+<span class="nc" id="L657">            return executeCommand(ip, port, FETCH_CLUSTER_CLIENT_CONFIG_PATH, false)</span>
+<span class="nc" id="L658">                .thenApply(r -&gt; JSON.parseObject(r, ClusterClientInfoVO.class));</span>
+<span class="nc" id="L659">        } catch (Exception ex) {</span>
+<span class="nc" id="L660">            logger.warn(&quot;Error when fetching cluster client config&quot;, ex);</span>
+<span class="nc" id="L661">            return AsyncUtils.newFailedFuture(ex);</span>
+        }
+    }
+
+    public CompletableFuture&lt;Void&gt; modifyClusterClientConfig(String app, String ip, int port, ClusterClientConfig config) {
+<span class="nc bnc" id="L666" title="All 4 branches missed.">        if (StringUtil.isBlank(ip) || port &lt;= 0) {</span>
+<span class="nc" id="L667">            return AsyncUtils.newFailedFuture(new IllegalArgumentException(&quot;Invalid parameter&quot;));</span>
+        }
+        try {
+<span class="nc" id="L670">            Map&lt;String, String&gt; params = new HashMap&lt;&gt;(1);</span>
+<span class="nc" id="L671">            params.put(&quot;data&quot;, JSON.toJSONString(config));</span>
+<span class="nc" id="L672">            return executeCommand(app, ip, port, MODIFY_CLUSTER_CLIENT_CONFIG_PATH, params, true)</span>
+<span class="nc" id="L673">                .thenCompose(e -&gt; {</span>
+<span class="nc bnc" id="L674" title="All 2 branches missed.">                    if (CommandConstants.MSG_SUCCESS.equals(e)) {</span>
+<span class="nc" id="L675">                        return CompletableFuture.completedFuture(null);</span>
+                    } else {
+<span class="nc" id="L677">                        logger.warn(&quot;Error when modifying cluster client config: &quot; + e);</span>
+<span class="nc" id="L678">                        return AsyncUtils.newFailedFuture(new RuntimeException(e));</span>
+                    }
+                });
+<span class="nc" id="L681">        } catch (Exception ex) {</span>
+<span class="nc" id="L682">            logger.warn(&quot;Error when modifying cluster client config&quot;, ex);</span>
+<span class="nc" id="L683">            return AsyncUtils.newFailedFuture(ex);</span>
+        }
+    }
+
+    public CompletableFuture&lt;Void&gt; modifyClusterServerFlowConfig(String app, String ip, int port, ServerFlowConfig config) {
+<span class="nc bnc" id="L688" title="All 4 branches missed.">        if (StringUtil.isBlank(ip) || port &lt;= 0) {</span>
+<span class="nc" id="L689">            return AsyncUtils.newFailedFuture(new IllegalArgumentException(&quot;Invalid parameter&quot;));</span>
+        }
+        try {
+<span class="nc" id="L692">            Map&lt;String, String&gt; params = new HashMap&lt;&gt;(1);</span>
+<span class="nc" id="L693">            params.put(&quot;data&quot;, JSON.toJSONString(config));</span>
+<span class="nc" id="L694">            return executeCommand(app, ip, port, MODIFY_CLUSTER_SERVER_FLOW_CONFIG_PATH, params, true)</span>
+<span class="nc" id="L695">                .thenCompose(e -&gt; {</span>
+<span class="nc bnc" id="L696" title="All 2 branches missed.">                    if (CommandConstants.MSG_SUCCESS.equals(e)) {</span>
+<span class="nc" id="L697">                        return CompletableFuture.completedFuture(null);</span>
+                    } else {
+<span class="nc" id="L699">                        logger.warn(&quot;Error when modifying cluster server flow config: &quot; + e);</span>
+<span class="nc" id="L700">                        return AsyncUtils.newFailedFuture(new RuntimeException(e));</span>
+                    }
+                });
+<span class="nc" id="L703">        } catch (Exception ex) {</span>
+<span class="nc" id="L704">            logger.warn(&quot;Error when modifying cluster server flow config&quot;, ex);</span>
+<span class="nc" id="L705">            return AsyncUtils.newFailedFuture(ex);</span>
+        }
+    }
+
+    public CompletableFuture&lt;Void&gt; modifyClusterServerTransportConfig(String app, String ip, int port, ServerTransportConfig config) {
+<span class="nc bnc" id="L710" title="All 4 branches missed.">        if (StringUtil.isBlank(ip) || port &lt;= 0) {</span>
+<span class="nc" id="L711">            return AsyncUtils.newFailedFuture(new IllegalArgumentException(&quot;Invalid parameter&quot;));</span>
+        }
+        try {
+<span class="nc" id="L714">            Map&lt;String, String&gt; params = new HashMap&lt;&gt;(2);</span>
+<span class="nc" id="L715">            params.put(&quot;port&quot;, config.getPort().toString());</span>
+<span class="nc" id="L716">            params.put(&quot;idleSeconds&quot;, config.getIdleSeconds().toString());</span>
+<span class="nc" id="L717">            return executeCommand(app, ip, port, MODIFY_CLUSTER_SERVER_TRANSPORT_CONFIG_PATH, params, false)</span>
+<span class="nc" id="L718">                .thenCompose(e -&gt; {</span>
+<span class="nc bnc" id="L719" title="All 2 branches missed.">                    if (CommandConstants.MSG_SUCCESS.equals(e)) {</span>
+<span class="nc" id="L720">                        return CompletableFuture.completedFuture(null);</span>
+                    } else {
+<span class="nc" id="L722">                        logger.warn(&quot;Error when modifying cluster server transport config: &quot; + e);</span>
+<span class="nc" id="L723">                        return AsyncUtils.newFailedFuture(new RuntimeException(e));</span>
+                    }
+                });
+<span class="nc" id="L726">        } catch (Exception ex) {</span>
+<span class="nc" id="L727">            logger.warn(&quot;Error when modifying cluster server transport config&quot;, ex);</span>
+<span class="nc" id="L728">            return AsyncUtils.newFailedFuture(ex);</span>
+        }
+    }
+
+    public CompletableFuture&lt;Void&gt; modifyClusterServerNamespaceSet(String app, String ip, int port, Set&lt;String&gt; set) {
+<span class="nc bnc" id="L733" title="All 4 branches missed.">        if (StringUtil.isBlank(ip) || port &lt;= 0) {</span>
+<span class="nc" id="L734">            return AsyncUtils.newFailedFuture(new IllegalArgumentException(&quot;Invalid parameter&quot;));</span>
+        }
+        try {
+<span class="nc" id="L737">            Map&lt;String, String&gt; params = new HashMap&lt;&gt;(1);</span>
+<span class="nc" id="L738">            params.put(&quot;data&quot;, JSON.toJSONString(set));</span>
+<span class="nc" id="L739">            return executeCommand(app, ip, port, MODIFY_CLUSTER_SERVER_NAMESPACE_SET_PATH, params, true)</span>
+<span class="nc" id="L740">                .thenCompose(e -&gt; {</span>
+<span class="nc bnc" id="L741" title="All 2 branches missed.">                    if (CommandConstants.MSG_SUCCESS.equals(e)) {</span>
+<span class="nc" id="L742">                        return CompletableFuture.completedFuture(null);</span>
+                    } else {
+<span class="nc" id="L744">                        logger.warn(&quot;Error when modifying cluster server NamespaceSet&quot;, e);</span>
+<span class="nc" id="L745">                        return AsyncUtils.newFailedFuture(new RuntimeException(e));</span>
+                    }
+                });
+<span class="nc" id="L748">        } catch (Exception ex) {</span>
+<span class="nc" id="L749">            logger.warn(&quot;Error when modifying cluster server NamespaceSet&quot;, ex);</span>
+<span class="nc" id="L750">            return AsyncUtils.newFailedFuture(ex);</span>
+        }
+    }
+
+    public CompletableFuture&lt;ClusterServerStateVO&gt; fetchClusterServerBasicInfo(String ip, int port) {
+<span class="nc bnc" id="L755" title="All 4 branches missed.">        if (StringUtil.isBlank(ip) || port &lt;= 0) {</span>
+<span class="nc" id="L756">            return AsyncUtils.newFailedFuture(new IllegalArgumentException(&quot;Invalid parameter&quot;));</span>
+        }
+        try {
+<span class="nc" id="L759">            return executeCommand(ip, port, FETCH_CLUSTER_SERVER_BASIC_INFO_PATH, false)</span>
+<span class="nc" id="L760">                .thenApply(r -&gt; JSON.parseObject(r, ClusterServerStateVO.class));</span>
+<span class="nc" id="L761">        } catch (Exception ex) {</span>
+<span class="nc" id="L762">            logger.warn(&quot;Error when fetching cluster sever all config and basic info&quot;, ex);</span>
+<span class="nc" id="L763">            return AsyncUtils.newFailedFuture(ex);</span>
+        }
+    }
+
+    public CompletableFuture&lt;List&lt;ApiDefinitionEntity&gt;&gt; fetchApis(String app, String ip, int port) {
+<span class="nc bnc" id="L768" title="All 4 branches missed.">        if (StringUtil.isBlank(ip) || port &lt;= 0) {</span>
+<span class="nc" id="L769">            return AsyncUtils.newFailedFuture(new IllegalArgumentException(&quot;Invalid parameter&quot;));</span>
+        }
+
+        try {
+<span class="nc" id="L773">            return executeCommand(ip, port, FETCH_GATEWAY_API_PATH, false)</span>
+<span class="nc" id="L774">                    .thenApply(r -&gt; {</span>
+<span class="nc" id="L775">                        List&lt;ApiDefinitionEntity&gt; entities = JSON.parseArray(r, ApiDefinitionEntity.class);</span>
+<span class="nc bnc" id="L776" title="All 2 branches missed.">                        if (entities != null) {</span>
+<span class="nc bnc" id="L777" title="All 2 branches missed.">                            for (ApiDefinitionEntity entity : entities) {</span>
+<span class="nc" id="L778">                                entity.setApp(app);</span>
+<span class="nc" id="L779">                                entity.setIp(ip);</span>
+<span class="nc" id="L780">                                entity.setPort(port);</span>
+<span class="nc" id="L781">                            }</span>
+                        }
+<span class="nc" id="L783">                        return entities;</span>
+                    });
+<span class="nc" id="L785">        } catch (Exception ex) {</span>
+<span class="nc" id="L786">            logger.warn(&quot;Error when fetching gateway apis&quot;, ex);</span>
+<span class="nc" id="L787">            return AsyncUtils.newFailedFuture(ex);</span>
+        }
+    }
+
+    public boolean modifyApis(String app, String ip, int port, List&lt;ApiDefinitionEntity&gt; apis) {
+<span class="nc bnc" id="L792" title="All 2 branches missed.">        if (apis == null) {</span>
+<span class="nc" id="L793">            return true;</span>
+        }
+
+        try {
+<span class="nc" id="L797">            AssertUtil.notEmpty(app, &quot;Bad app name&quot;);</span>
+<span class="nc" id="L798">            AssertUtil.notEmpty(ip, &quot;Bad machine IP&quot;);</span>
+<span class="nc bnc" id="L799" title="All 2 branches missed.">            AssertUtil.isTrue(port &gt; 0, &quot;Bad machine port&quot;);</span>
+<span class="nc" id="L800">            String data = JSON.toJSONString(</span>
+<span class="nc" id="L801">                    apis.stream().map(r -&gt; r.toApiDefinition()).collect(Collectors.toList()));</span>
+<span class="nc" id="L802">            Map&lt;String, String&gt; params = new HashMap&lt;&gt;(2);</span>
+<span class="nc" id="L803">            params.put(&quot;data&quot;, data);</span>
+<span class="nc" id="L804">            String result = executeCommand(app, ip, port, MODIFY_GATEWAY_API_PATH, params, true).get();</span>
+<span class="nc" id="L805">            logger.info(&quot;Modify gateway apis: {}&quot;, result);</span>
+<span class="nc" id="L806">            return true;</span>
+<span class="nc" id="L807">        } catch (Exception e) {</span>
+<span class="nc" id="L808">            logger.warn(&quot;Error when modifying gateway apis&quot;, e);</span>
+<span class="nc" id="L809">            return false;</span>
+        }
+    }
+
+    public CompletableFuture&lt;List&lt;GatewayFlowRuleEntity&gt;&gt; fetchGatewayFlowRules(String app, String ip, int port) {
+<span class="nc bnc" id="L814" title="All 4 branches missed.">        if (StringUtil.isBlank(ip) || port &lt;= 0) {</span>
+<span class="nc" id="L815">            return AsyncUtils.newFailedFuture(new IllegalArgumentException(&quot;Invalid parameter&quot;));</span>
+        }
+
+        try {
+<span class="nc" id="L819">            return executeCommand(ip, port, FETCH_GATEWAY_FLOW_RULE_PATH, false)</span>
+<span class="nc" id="L820">                    .thenApply(r -&gt; {</span>
+<span class="nc" id="L821">                        List&lt;GatewayFlowRule&gt; gatewayFlowRules = JSON.parseArray(r, GatewayFlowRule.class);</span>
+<span class="nc" id="L822">                        List&lt;GatewayFlowRuleEntity&gt; entities = gatewayFlowRules.stream().map(rule -&gt; GatewayFlowRuleEntity.fromGatewayFlowRule(app, ip, port, rule)).collect(Collectors.toList());</span>
+<span class="nc" id="L823">                        return entities;</span>
+                    });
+<span class="nc" id="L825">        } catch (Exception ex) {</span>
+<span class="nc" id="L826">            logger.warn(&quot;Error when fetching gateway flow rules&quot;, ex);</span>
+<span class="nc" id="L827">            return AsyncUtils.newFailedFuture(ex);</span>
+        }
+    }
+
+    public boolean modifyGatewayFlowRules(String app, String ip, int port, List&lt;GatewayFlowRuleEntity&gt; rules) {
+<span class="nc bnc" id="L832" title="All 2 branches missed.">        if (rules == null) {</span>
+<span class="nc" id="L833">            return true;</span>
+        }
+
+        try {
+<span class="nc" id="L837">            AssertUtil.notEmpty(app, &quot;Bad app name&quot;);</span>
+<span class="nc" id="L838">            AssertUtil.notEmpty(ip, &quot;Bad machine IP&quot;);</span>
+<span class="nc bnc" id="L839" title="All 2 branches missed.">            AssertUtil.isTrue(port &gt; 0, &quot;Bad machine port&quot;);</span>
+<span class="nc" id="L840">            String data = JSON.toJSONString(</span>
+<span class="nc" id="L841">                    rules.stream().map(r -&gt; r.toGatewayFlowRule()).collect(Collectors.toList()));</span>
+<span class="nc" id="L842">            Map&lt;String, String&gt; params = new HashMap&lt;&gt;(2);</span>
+<span class="nc" id="L843">            params.put(&quot;data&quot;, data);</span>
+<span class="nc" id="L844">            String result = executeCommand(app, ip, port, MODIFY_GATEWAY_FLOW_RULE_PATH, params, true).get();</span>
+<span class="nc" id="L845">            logger.info(&quot;Modify gateway flow rules: {}&quot;, result);</span>
+<span class="nc" id="L846">            return true;</span>
+<span class="nc" id="L847">        } catch (Exception e) {</span>
+<span class="nc" id="L848">            logger.warn(&quot;Error when modifying gateway apis&quot;, e);</span>
+<span class="nc" id="L849">            return false;</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.3.201901230119</span></div></body></html>

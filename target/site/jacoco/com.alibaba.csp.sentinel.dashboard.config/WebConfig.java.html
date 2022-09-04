@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>WebConfig.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">sentinel-dashboard</a> &gt; <a href="index.source.html" class="el_package">com.alibaba.csp.sentinel.dashboard.config</a> &gt; <span class="el_source">WebConfig.java</span></div><h1>WebConfig.java</h1><pre class="source lang-java linenums">/*
+ * Copyright 1999-2018 Alibaba Group Holding Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.alibaba.csp.sentinel.dashboard.config;
+
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
+
+import com.alibaba.csp.sentinel.adapter.servlet.CommonFilter;
+import com.alibaba.csp.sentinel.adapter.servlet.callback.WebCallbackManager;
+import com.alibaba.csp.sentinel.dashboard.auth.AuthorizationInterceptor;
+import com.alibaba.csp.sentinel.dashboard.auth.LoginAuthenticationFilter;
+import com.alibaba.csp.sentinel.util.StringUtil;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
+import org.springframework.web.servlet.config.annotation.ViewControllerRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import javax.annotation.PostConstruct;
+import javax.servlet.Filter;
+
+/**
+ * @author leyou
+ */
+@Configuration
+<span class="fc" id="L46">public class WebConfig implements WebMvcConfigurer {</span>
+
+<span class="fc" id="L48">    private final Logger logger = LoggerFactory.getLogger(WebConfig.class);</span>
+
+    @Autowired
+    private LoginAuthenticationFilter loginAuthenticationFilter;
+
+    @Autowired
+    private AuthorizationInterceptor authorizationInterceptor;
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+<span class="fc" id="L58">        registry.addInterceptor(authorizationInterceptor).addPathPatterns(&quot;/**&quot;);</span>
+<span class="fc" id="L59">    }</span>
+
+    @Override
+    public void addResourceHandlers(ResourceHandlerRegistry registry) {
+<span class="fc" id="L63">        registry.addResourceHandler(&quot;/**&quot;).addResourceLocations(&quot;classpath:/resources/&quot;);</span>
+<span class="fc" id="L64">    }</span>
+
+    @Override
+    public void addViewControllers(ViewControllerRegistry registry) {
+<span class="fc" id="L68">        registry.addViewController(&quot;/&quot;).setViewName(&quot;forward:/index.htm&quot;);</span>
+<span class="fc" id="L69">    }</span>
+
+    /**
+     * Add {@link CommonFilter} to the server, this is the simplest way to use Sentinel
+     * for Web application.
+     */
+    @Bean
+    public FilterRegistrationBean sentinelFilterRegistration() {
+<span class="fc" id="L77">        FilterRegistrationBean&lt;Filter&gt; registration = new FilterRegistrationBean&lt;&gt;();</span>
+<span class="fc" id="L78">        registration.setFilter(new CommonFilter());</span>
+<span class="fc" id="L79">        registration.addUrlPatterns(&quot;/*&quot;);</span>
+<span class="fc" id="L80">        registration.setName(&quot;sentinelFilter&quot;);</span>
+<span class="fc" id="L81">        registration.setOrder(1);</span>
+        // If this is enabled, the entrance of all Web URL resources will be unified as a single context name.
+        // In most scenarios that's enough, and it could reduce the memory footprint.
+<span class="fc" id="L84">        registration.addInitParameter(CommonFilter.WEB_CONTEXT_UNIFY, &quot;true&quot;);</span>
+
+<span class="fc" id="L86">        logger.info(&quot;Sentinel servlet CommonFilter registered&quot;);</span>
+
+<span class="fc" id="L88">        return registration;</span>
+    }
+
+    @PostConstruct
+    public void doInit() {
+<span class="fc" id="L93">        Set&lt;String&gt; suffixSet = new HashSet&lt;&gt;(Arrays.asList(&quot;.js&quot;, &quot;.css&quot;, &quot;.html&quot;, &quot;.ico&quot;, &quot;.txt&quot;,</span>
+            &quot;.woff&quot;, &quot;.woff2&quot;));
+        // Example: register a UrlCleaner to exclude URLs of common static resources.
+<span class="fc" id="L96">        WebCallbackManager.setUrlCleaner(url -&gt; {</span>
+<span class="pc bpc" id="L97" title="1 of 2 branches missed.">            if (StringUtil.isEmpty(url)) {</span>
+<span class="nc" id="L98">                return url;</span>
+            }
+<span class="pc bpc" id="L100" title="1 of 2 branches missed.">            if (suffixSet.stream().anyMatch(url::endsWith)) {</span>
+<span class="nc" id="L101">                return null;</span>
+            }
+<span class="fc" id="L103">            return url;</span>
+        });
+<span class="fc" id="L105">    }</span>
+
+    @Bean
+    public FilterRegistrationBean authenticationFilterRegistration() {
+<span class="fc" id="L109">        FilterRegistrationBean&lt;Filter&gt; registration = new FilterRegistrationBean&lt;&gt;();</span>
+<span class="fc" id="L110">        registration.setFilter(loginAuthenticationFilter);</span>
+<span class="fc" id="L111">        registration.addUrlPatterns(&quot;/*&quot;);</span>
+<span class="fc" id="L112">        registration.setName(&quot;authenticationFilter&quot;);</span>
+<span class="fc" id="L113">        registration.setOrder(0);</span>
+<span class="fc" id="L114">        return registration;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.3.201901230119</span></div></body></html>
